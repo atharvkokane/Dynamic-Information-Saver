@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dynamic Information Saver</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <section class="hero">
+      <p class="eyebrow">Dynamic Information Saver</p>
+      <h1>Store, edit, search, and export your table data.</h1>
+      <p class="subtitle">Generate a table, edit cells in place, and keep the data saved locally.</p>
+    </section>
+
+    <section class="panel controls-panel">
+      <div class="control-grid">
+        <label>
+          Rows
+          <input type="number" id="rows" value="3" min="1" />
+        </label>
+        <label>
+          Columns
+          <input type="number" id="columns" value="3" min="1" />
+        </label>
+        <button id="generateBtn" class="primary-btn" type="button">Generate Table</button>
+        <button id="resetBtn" class="danger-btn" type="button">Reset Table</button>
+      </div>
+
+      <label class="search-label">
+        Search
+        <input type="text" id="search" placeholder="Type to filter rows..." />
+      </label>
+
+      <div class="action-row">
+        <button id="downloadBtn" class="secondary-btn" type="button" hidden>Download PDF</button>
+        <button id="addRowBtn" type="button">Add Row</button>
+        <button id="addColumnBtn" type="button">Add Column</button>
+        <button id="deleteRowBtn" type="button">Delete Last Row</button>
+        <button id="deleteColumnBtn" type="button">Delete Last Column</button>
+      </div>
+    </section>
+
+    <section class="panel table-panel">
+      <div class="table-toolbar">
+        <h2>Editable Table</h2>
+        <p id="statusText">No table loaded yet.</p>
+      </div>
+
+      <div id="table-container" class="table-container"></div>
+    </section>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.22/jspdf.plugin.autotable.min.js"></script>
+  <script src="script.js" defer></script>
+</body>
+</html>
