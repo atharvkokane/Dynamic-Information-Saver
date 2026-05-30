@@ -183,11 +183,31 @@ button:active {
 table {
   width: 100%;
   min-width: 720px;
-  border-collapse: collapse;
-  border: 2px solid #000;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 2px solid #ff0000;
   background: var(--surface-strong);
   border-radius: 16px;
   overflow: hidden;
+}
+
+/* Make the outer border a distinct red frame while inner cell borders stay black.
+   Using `separate` with zero spacing keeps the red outer border visible and prevents
+   red bleeding into inner grid lines. */
+
+/* Target the editable table specifically */
+#editableTable {
+  border: 2px solid #ff0000;
+  border-collapse: separate;
+  border-spacing: 0;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+/* Make header divider match outer red border */
+#editableTable thead th,
+#editableTable thead td {
+  border-bottom: 2px solid #ff0000;
 }
 
 th,

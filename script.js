@@ -295,6 +295,21 @@ function downloadPDF() {
     columnStyles: {
       0: { fillColor: [0, 123, 255], textColor: 255, halign: 'center' },
     },
+    didDrawCell: function (data) {
+      // Draw a single red horizontal divider under the header row across the full table.
+      if (data.section === 'head' && data.column.index === 0) {
+        const table = data.table;
+        const startX = table.startX || 40;
+        const tableWidth = table.width || (doc.internal.pageSize.getWidth() - startX - 40);
+        const y = data.row.y + data.row.height;
+        doc.setDrawColor(255, 0, 0);
+        doc.setLineWidth(2.4);
+        doc.line(startX, y, startX + tableWidth, y);
+        // restore defaults for other drawing
+        doc.setDrawColor(0, 0, 0);
+        doc.setLineWidth(0.8);
+      }
+    },
   });
 
   // Draw an emphasized outer border around the table to ensure it's visible
@@ -304,8 +319,8 @@ function downloadPDF() {
     const tableWidth = last.table.width || (doc.internal.pageSize.getWidth() - startX - 40);
     const tableTop = 45;
     const tableBottom = last.finalY || (tableTop + (last.table.height || 0));
-    doc.setLineWidth(1.8);
-    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(2.4);
+    doc.setDrawColor(255, 0, 0); // red outer border to match on-screen
     doc.rect(startX, tableTop - 2, tableWidth, tableBottom - tableTop + 4);
   }
 
