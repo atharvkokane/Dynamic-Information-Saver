@@ -279,11 +279,35 @@ function downloadPDF() {
     styles: {
       fontSize: 9,
       cellPadding: 4,
+      lineColor: [0, 0, 0],
+      lineWidth: 0.8,
     },
     headStyles: {
       fillColor: [0, 123, 255],
+      textColor: 255,
+      lineColor: [0, 0, 0],
+      lineWidth: 0.8,
+    },
+    bodyStyles: {
+      lineColor: [0, 0, 0],
+      lineWidth: 0.8,
+    },
+    columnStyles: {
+      0: { fillColor: [0, 123, 255], textColor: 255, halign: 'center' },
     },
   });
+
+  // Draw an emphasized outer border around the table to ensure it's visible
+  const last = doc.lastAutoTable;
+  if (last && last.table) {
+    const startX = last.table.startX || 40;
+    const tableWidth = last.table.width || (doc.internal.pageSize.getWidth() - startX - 40);
+    const tableTop = 45;
+    const tableBottom = last.finalY || (tableTop + (last.table.height || 0));
+    doc.setLineWidth(1.8);
+    doc.setDrawColor(0, 0, 0);
+    doc.rect(startX, tableTop - 2, tableWidth, tableBottom - tableTop + 4);
+  }
 
   doc.save("dynamic-information-saver.pdf");
 }
