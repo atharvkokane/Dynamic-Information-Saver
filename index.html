@@ -33,8 +33,7 @@
         <input type="text" id="search" placeholder="Type to filter rows..." />
       </label>
 
-      <div class="action-row">
-        <button id="downloadBtn" class="secondary-btn" type="button" hidden>Download PDF</button>
+      <div class="action-row top-actions">
         <button id="addRowBtn" type="button">Add Row</button>
         <button id="addColumnBtn" type="button">Add Column</button>
         <button id="deleteRowBtn" type="button">Delete Last Row</button>
@@ -49,9 +48,88 @@
       </div>
 
       <div id="table-container" class="table-container"></div>
+
+      <div class="action-row bottom-actions">
+        <button id="saveBtn" class="primary-btn" type="button">Save to Excel</button>
+        <button id="downloadBtn" class="secondary-btn" type="button">Download PDF</button>
+        <button id="reportBtn" class="report-btn" type="button">Create Graph</button>
+      </div>
+    </section>
+
+    <section id="reportDrawer" class="report-drawer" aria-hidden="true">
+      <div class="report-panel panel">
+        <div class="report-header">
+          <div>
+            <p class="eyebrow">Graph View</p>
+            <h2>Visual data dashboard</h2>
+            <p id="reportSubtitle" class="report-subtitle">Generate a table to see the entered data turn into charts.</p>
+          </div>
+          <button id="closeReportBtn" class="report-close-btn" type="button" aria-label="Close graph">Close</button>
+        </div>
+
+        <div class="graph-toolbar">
+          <div class="graph-toolbar-group">
+            <span class="graph-toolbar-label">Record overview</span>
+          </div>
+          <div class="graph-toolbar-actions">
+            <button id="saveGraphBtn" class="graph-save-btn" type="button">Save Graph PDF</button>
+          </div>
+        </div>
+
+        <div id="reportStatus" class="report-status"></div>
+
+        <div id="reportMetrics" class="report-metrics"></div>
+
+        <section class="report-card report-focus-card">
+          <div class="report-card-header">
+            <h3>Focused person</h3>
+            <span>Detailed view of one record</span>
+          </div>
+          <div class="focus-layout">
+            <div class="focus-summary">
+              <p id="focusKicker" class="focus-kicker">Selected person</p>
+              <h4 id="focusTitle" class="focus-title">No data selected</h4>
+              <p id="focusMeta" class="focus-meta">Generate a table to focus a record.</p>
+              <div id="focusStats" class="focus-stats"></div>
+              <div id="focusChips" class="focus-chips"></div>
+            </div>
+            <div class="chart-wrap chart-wrap-focus">
+              <canvas id="focusChart"></canvas>
+            </div>
+          </div>
+        </section>
+
+        <section class="report-card report-comparison-card">
+          <div class="report-card-header">
+            <h3>Person score comparison</h3>
+            <span>Higher bars mean richer, more complete data</span>
+          </div>
+          <div class="chart-wrap chart-wrap-comparison">
+            <canvas id="comparisonChart"></canvas>
+          </div>
+        </section>
+
+        <section class="report-card report-insights-card">
+          <div class="report-card-header">
+            <h3>Data notes</h3>
+            <span>Quick observations from the current table</span>
+          </div>
+          <ul id="reportInsights" class="report-insights"></ul>
+        </section>
+
+        <section class="report-card report-preview-card">
+          <div class="report-card-header">
+            <h3>Person graphs</h3>
+            <span>Each person gets a chart and their entered data</span>
+          </div>
+          <div id="reportPreview" class="report-preview"></div>
+        </section>
+      </div>
     </section>
   </main>
 
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.22/jspdf.plugin.autotable.min.js"></script>
   <script src="script.js" defer></script>
