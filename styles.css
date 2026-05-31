@@ -829,6 +829,78 @@ td[contenteditable="true"]:focus {
   background: #f0fdfa;
 }
 
+/* Simple, accessible bar-list for reports (minimal, non-technical) */
+.simple-record {
+  padding: 12px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(2,6,23,0.06));
+  border: 1px solid rgba(148,163,184,0.06);
+  color: #eef4ff;
+  cursor: pointer;
+}
+
+.simple-record + .simple-record { margin-top: 10px; }
+
+.simple-record-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.simple-record-head strong { color: #eaf2ff; font-weight: 800; }
+.simple-record-head span { color: #cbd5e1; font-weight: 900; }
+
+.simple-bar {
+  height: 14px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.04);
+  overflow: hidden;
+}
+
+.simple-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #38bdf8);
+  width: 0%;
+  transition: width 450ms ease;
+}
+
+/* Comparison list styles (compact, readable) */
+.comparison-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(148,163,184,0.04);
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+.comp-label { flex: 0 0 30%; color: #eaf2ff; font-weight: 700; }
+.comp-bar { flex: 1 1 auto; height: 12px; border-radius: 999px; background: rgba(255,255,255,0.04); overflow: hidden; }
+.comp-fill { height: 100%; background: linear-gradient(90deg, #0f766e, #2563eb); width: 0%; transition: width 450ms ease; }
+.comp-score { flex: 0 0 48px; text-align: right; color: #cbd5e1; font-weight: 800; }
+
+/* Person card styles (distinct from comparison rows) */
+.person-card {
+  padding: 12px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(2,6,23,0.06));
+  border: 1px solid rgba(148,163,184,0.05);
+  color: #eef4ff;
+}
+
+.person-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.person-name { font-weight: 800; color: #eaf2ff; }
+.person-score { background: rgba(37,99,235,0.14); padding: 6px 10px; border-radius: 999px; color: #eaf2ff; font-weight: 900; }
+.person-sub { color: #cbd5e1; font-size: 0.9rem; margin: 8px 0; }
+.person-bar { height: 10px; border-radius: 999px; background: rgba(255,255,255,0.03); overflow: hidden; }
+.person-fill { height: 100%; background: linear-gradient(90deg, #14b8a6, #06b6d4); width: 0%; transition: width 450ms ease; }
+
+
 th[contenteditable="true"]:focus {
   outline: 2px solid rgba(255, 255, 255, 0.8);
   outline-offset: -2px;

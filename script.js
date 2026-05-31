@@ -1028,37 +1028,136 @@ function renderGraph() {
     elements.focusChips.innerHTML = "";
     elements.reportInsights.innerHTML = "<li>No table data available.</li>";
     elements.reportPreview.innerHTML = '<p class="report-empty">No records available to preview.</p>';
-    destroyGraphCharts();
     return;
   }
 
-  destroyGraphCharts();
-
+  // Simple, approachable report: plain metric cards and a small, clear bar list.
   const sortedRecords = getSortedRecords(report);
-  if (focusedRecordIndex === null || !report.records.some((record) => record.index === focusedRecordIndex)) {
-    focusedRecordIndex = report.bestRecord?.index ?? sortedRecords[0]?.index ?? null;
+  const focusRecord = report.bestRecord ? sortedRecords.find((r) => r.index === report.bestRecord.index) : sortedRecords[0] || null;
+
+  // If there are no records (empty table rows), show a clear message and avoid rendering empty graph areas.
+  if (!sortedRecords.length) {
+    elements.reportStatus.textContent = `${report.rows} record(s) • ${report.columns} field(s) • ${formatPercent(report.completionRate)} filled`;
+    elements.reportMetrics.innerHTML = renderRecordOverview(report, null);
+    renderInsights(report, sortedRecords);
+    renderFocusPanel(report, null);
+    elements.reportPreview.innerHTML = '<p class="report-empty">No records available to preview.</p>';
+    return;
   }
 
-  const focusRecord = getFocusRecord(report, sortedRecords);
-  elements.reportStatus.textContent = `${report.rows} person record(s), ${report.columns} field(s), ${formatPercent(report.completionRate)} data filled.`;
+  elements.reportStatus.textContent = `${report.rows} record(s) • ${report.columns} field(s) • ${formatPercent(report.completionRate)} filled`;
   elements.reportMetrics.innerHTML = renderRecordOverview(report, focusRecord);
-
   renderInsights(report, sortedRecords);
-  renderFocusPanel(report, focusRecord);
-  renderFocusedChart(focusRecord, sortedRecords.findIndex((record) => record.index === focusRecord?.index));
-  renderComparisonChart(report, sortedRecords);
-  renderGraphCards(report, sortedRecords);
+
+  // Focus panel simplified to text summary
+  if (focusRecord) {
+    elements.focusKicker.textContent = `Record ${focusRecord.index + 1}`;
+    elements.focusTitle.textContent = focusRecord.label;
+    elements.focusMeta.textContent = `${formatPercent(focusRecord.completion)} complete — Score ${focusRecord.score}%`;
+    elements.focusStats.innerHTML = `
+      <span class="focus-stat"><strong>${focusRecord.score}</strong><em>Score</em></span>
+      <span class="focus-stat"><strong>${focusRecord.filledFields}</strong><em>Filled</em></span>
+    `;
+    elements.focusChips.innerHTML = '';
+  } else {
+    renderFocusPanel(report, null);
+  }
+
+  // Person cards (compact): show filled fields and a short completion bar — simple and unique
+  elements.reportPreview.innerHTML = sortedRecords
+    .map((r) => {
+      const totalFields = r.fields.length || report.columns || 0;
+      return `
+      <article class="person-card" data-record-index="${r.index}" tabindex="0" role="button" aria-label="${escapeHtml(r.label)}">
+        <div class="person-head">
+          <strong class="person-name">${escapeHtml(r.label)}</strong>
+          <span class="person-score">${r.score}%</span>
+        </div>
+        <div class="person-sub">${r.filledFields} of ${totalFields} filled</div>
+        <div class="person-bar" aria-hidden="true"><div class="person-fill" style="width:${r.completion}%"></div></div>
+      </article>
+    `
+    })
+    .join("");
+
+  // Wire simple interactions: clicking focuses a record and updates the focus summary
+  const simpleCards = Array.from(elements.reportPreview.querySelectorAll(".simple-record"));
+  simpleCards.forEach((card) => {
+    const idx = Number(card.dataset.recordIndex);
+    card.addEventListener("click", () => {
+      setFocusedRecord(idx);
+      const selected = sortedRecords.find((x) => x.index === idx);
+      if (selected) {
+        elements.focusTitle.textContent = selected.label;
+        elements.focusMeta.textContent = `${formatPercent(selected.completion)} complete — Score ${selected.score}%`;
+        elements.focusStats.innerHTML = `
+          <span class="focus-stat"><strong>${selected.score}</strong><em>Score</em></span>
+          <span class="focus-stat"><strong>${selected.filledFields}</strong><em>Filled</em></span>
+        `;
+      }
+    });
+
+    card.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        card.click();
+      }
+    });
+  });
+
+  // Render a simple comparison list in the comparison card area (replaces empty canvas)
+  const comparisonContainer = elements.comparisonChart ? elements.comparisonChart.parentElement : null;
+  if (comparisonContainer) {
+    if (!sortedRecords.length) {
+      comparisonContainer.innerHTML = '<p class="report-empty">No records to compare.</p>';
+    } else {
+      comparisonContainer.innerHTML = sortedRecords
+        .map((r) => `
+          <div class="comparison-row" data-record-index="${r.index}" tabindex="0" role="button">
+            <div class="comp-label">${escapeHtml(r.label)}</div>
+            <div class="comp-bar"><div class="comp-fill" style="width:${r.score}%"></div></div>
+            <div class="comp-score">${r.score}%</div>
+          </div>
+        `)
+        .join("");
+
+      // allow focusing/selecting from comparison rows
+      Array.from(comparisonContainer.querySelectorAll('.comparison-row')).forEach((row) => {
+        const idx = Number(row.dataset.recordIndex);
+        row.addEventListener('click', () => {
+          setFocusedRecord(idx);
+          const selected = sortedRecords.find((x) => x.index === idx);
+          if (selected) {
+            elements.focusTitle.textContent = selected.label;
+            elements.focusMeta.textContent = `${formatPercent(selected.completion)} complete — Score ${selected.score}%`;
+            elements.focusStats.innerHTML = `
+              <span class="focus-stat"><strong>${selected.score}</strong><em>Score</em></span>
+              <span class="focus-stat"><strong>${selected.filledFields}</strong><em>Filled</em></span>
+            `;
+          }
+        });
+
+        row.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); row.click(); }
+        });
+      });
+    }
+  }
 }
 
 function exportGraphPdf() {
   const report = getReportData();
 
-  if (!report || !window.jspdf || !window.jspdf.jsPDF) {
+  if (!report) {
+    alert('Generate a table first, then open Graph View and try Save Graph PDF again.');
     return;
   }
 
-  const sortedRecords = getSortedRecords(report);
-  const focusRecord = getFocusRecord(report, sortedRecords) || sortedRecords[0];
+  if (!window.jspdf || !window.jspdf.jsPDF) {
+    alert('PDF library is not loaded. Please check the page scripts and reload.');
+    return;
+  }
+
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -1066,118 +1165,149 @@ function exportGraphPdf() {
   const margin = 34;
   const contentWidth = pageWidth - margin * 2;
 
+  const sortedRecords = getSortedRecords(report);
+  const barColor = [37, 99, 235];
+  const fillColor = [15, 118, 110];
+  const muted = [100, 116, 139];
+
   const drawHeader = (title, subtitleLines) => {
     doc.setFillColor(9, 17, 31);
-    doc.rect(0, 0, pageWidth, pageHeight, "F");
-    doc.setFont("helvetica", "bold");
+    doc.rect(0, 0, pageWidth, pageHeight, 'F');
+    doc.setFont('helvetica', 'bold');
     doc.setFontSize(24);
     doc.setTextColor(255, 255, 255);
     doc.text(title, margin, 42);
-    doc.setFont("helvetica", "bold");
+    doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
     doc.setTextColor(180, 198, 255);
     subtitleLines.forEach((line, index) => {
-      doc.text(line, margin, 62 + (index * 14));
+      doc.text(line, margin, 62 + index * 14);
     });
   };
 
-  const drawSummaryCard = (x, y, width, label, value, accent) => {
-    doc.setFillColor(17, 24, 39);
-    doc.setDrawColor(accent[0], accent[1], accent[2]);
-    doc.roundedRect(x, y, width, 60, 10, 10, "FD");
-    doc.setTextColor(accent[0], accent[1], accent[2]);
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "bold");
-    doc.text(String(label).toUpperCase(), x + 10, y + 16);
+  const drawPill = (x, y, width, label, value, accent) => {
+    doc.setFillColor(accent[0], accent[1], accent[2]);
+    doc.roundedRect(x, y, width, 56, 12, 12, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
     doc.setTextColor(255, 255, 255);
+    doc.text(String(label).toUpperCase(), x + 10, y + 17);
     doc.setFontSize(18);
-    doc.text(String(value), x + 10, y + 42);
+    doc.text(String(value), x + 10, y + 40);
   };
 
-  const drawRecordGrid = (records, startY) => {
-    const cardWidth = (contentWidth - 14) / 2;
-    const cardHeight = 110;
-    let cardIndex = 0;
-    let currentY = startY;
+  const drawSimpleBar = (x, y, width, label, value, maxValue) => {
+    const ratio = maxValue > 0 ? value / maxValue : 0;
+    const barWidth = Math.max(4, Math.round(width * ratio));
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    doc.setTextColor(33, 41, 55);
+    doc.text(label, x, y + 12);
+    doc.setFillColor(229, 231, 235);
+    doc.roundedRect(x, y + 18, width, 12, 6, 6, 'F');
+    doc.setFillColor(barColor[0], barColor[1], barColor[2]);
+    doc.roundedRect(x, y + 18, barWidth, 12, 6, 6, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(muted[0], muted[1], muted[2]);
+    doc.text(`${value}%`, x + width - 4, y + 12, { align: 'right' });
+  };
 
-    while (cardIndex < records.length) {
-      if (currentY + cardHeight > pageHeight - 34) {
-        doc.addPage();
-        doc.setFillColor(9, 17, 31);
-        doc.rect(0, 0, pageWidth, pageHeight, "F");
-        currentY = 34;
-      }
+  const addWrappedText = (text, x, y, width, lineHeight = 14) => {
+    const lines = doc.splitTextToSize(String(text || ''), width);
+    doc.text(lines, x, y);
+    return y + (lines.length * lineHeight);
+  };
 
-      for (let column = 0; column < 2 && cardIndex < records.length; column += 1, cardIndex += 1) {
-        const record = records[cardIndex];
-        const x = margin + (column * (cardWidth + 14));
-        doc.setFillColor(14, 22, 39);
-        doc.setDrawColor(37, 99, 235);
-        doc.roundedRect(x, currentY, cardWidth, cardHeight, 10, 10, "FD");
-        doc.setTextColor(125, 211, 252);
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(14);
-        doc.text(record.label, x + 10, currentY + 20);
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(10);
-        doc.setTextColor(234, 240, 255);
-        doc.text(`Score ${record.score} • ${formatPercent(record.completion)} complete`, x + 10, currentY + 37);
+  try {
+    drawHeader('Dynamic Information Saver - Graph PDF', [
+      `Records: ${report.rows}`,
+      `Fields: ${report.columns}`,
+      `Filled: ${report.filledCount}`,
+    ]);
 
-        const chips = record.fields.slice(0, 3).map((field) => `${field.label}: ${field.value || "—"}`);
-        doc.setTextColor(180, 198, 255);
-        chips.forEach((chip, index) => {
-          const lines = doc.splitTextToSize(chip, cardWidth - 20);
-          doc.text(lines.slice(0, 2), x + 10, currentY + 52 + (index * 16));
-        });
-      }
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(margin, 88, contentWidth, 198, 16, 16, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.setTextColor(15, 23, 42);
+    doc.text('Record Overview', margin + 16, 114);
 
-      currentY += cardHeight + 14;
+    const halfWidth = (contentWidth - 16) / 2;
+    const summaryRowY = 128;
+    drawPill(margin + 16, summaryRowY, halfWidth, 'People', report.rows, [15, 118, 110]);
+    drawPill(margin + 16 + halfWidth + 16, summaryRowY, halfWidth, 'Fields', report.columns, [37, 99, 235]);
+
+    const summaryRow2Y = 192;
+    drawPill(margin + 16, summaryRow2Y, halfWidth, 'Best score', report.bestRecord ? `${report.bestRecord.score}%` : '0%', [124, 58, 237]);
+    drawPill(margin + 16 + halfWidth + 16, summaryRow2Y, halfWidth, 'Filled', `${report.completionRate.toFixed(0)}%`, [249, 115, 22]);
+
+    doc.addPage();
+    drawHeader('Person Score Comparison', [
+      `Best record: ${report.bestRecord ? report.bestRecord.label : 'none'}`,
+      `Unique values: ${report.uniqueCount}`,
+      `Numeric fields: ${report.numericFieldCount}`,
+    ]);
+
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(margin, 88, contentWidth, pageHeight - 122, 16, 16, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.setTextColor(15, 23, 42);
+    doc.text('Simple score bars', margin + 16, 114);
+
+    const recordBars = sortedRecords.slice(0, 10);
+    const maxScore = Math.max(100, ...recordBars.map((record) => record.score));
+    let currentY = 132;
+    recordBars.forEach((record) => {
+      drawSimpleBar(margin + 16, currentY, contentWidth - 32, record.label, record.score, maxScore);
+      currentY += 40;
+    });
+
+    if (!recordBars.length) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(12);
+      doc.setTextColor(100, 116, 139);
+      doc.text('No person records available.', margin + 16, currentY + 10);
     }
-  };
 
-  drawHeader("Dynamic Information Saver - Graph PDF", [
-    `Focus record: ${focusRecord ? focusRecord.label : "none"}`,
-    `Records: ${report.rows}`,
-    `Fields: ${report.columns}`,
-    `Filled: ${report.filledCount}`,
-  ]);
+    doc.addPage();
+    drawHeader('Person Record Cards', ['Each card mirrors the entered user data in a compact PDF layout.']);
 
-  const summaryLabels = ["People", "Fields", "Score", "Rate"];
-  const summaryValues = [report.rows, report.columns, report.bestRecord ? report.bestRecord.score : 0, formatPercent(report.completionRate)];
-  const summaryAccents = [[15, 118, 110], [37, 99, 235], [124, 58, 237], [249, 115, 22]];
-  summaryLabels.forEach((label, index) => {
-    const x = margin + (index * ((contentWidth - 42) / 4));
-    drawSummaryCard(x, 88, (contentWidth - 42) / 4, label, summaryValues[index], summaryAccents[index]);
-  });
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(margin, 88, contentWidth, pageHeight - 122, 16, 16, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.setTextColor(15, 23, 42);
+    doc.text('Record summaries', margin + 16, 114);
 
-  const focusImage = canvasToImageData(elements.focusChart);
-  if (focusImage) {
-    doc.setFillColor(15, 23, 42);
-    doc.setDrawColor(37, 99, 235);
-    doc.roundedRect(margin, 158, contentWidth, 176, 12, 12, "FD");
-    doc.addImage(focusImage, "PNG", margin + 10, 168, contentWidth - 20, 156);
+    let cardY = 132;
+    sortedRecords.slice(0, 8).forEach((record, index) => {
+      if (cardY > pageHeight - 92) {
+        doc.addPage();
+        drawHeader('Person Record Cards', ['Continued']);
+        doc.setFillColor(255, 255, 255);
+        doc.roundedRect(margin, 88, contentWidth, pageHeight - 122, 16, 16, 'F');
+        cardY = 114;
+      }
+
+      doc.setFillColor(index % 2 === 0 ? 243 : 248, index % 2 === 0 ? 244 : 250, 246);
+      doc.roundedRect(margin + 16, cardY, contentWidth - 32, 62, 12, 12, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.setTextColor(15, 23, 42);
+      doc.text(record.label, margin + 28, cardY + 20);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(100, 116, 139);
+      cardY = addWrappedText(`Score ${record.score}%  |  ${record.filledFields}/${record.fields.length} fields filled`, margin + 28, cardY + 38, contentWidth - 56);
+      cardY += 10;
+    });
+
+    doc.save('dynamic-information-saver-graph.pdf');
+  } catch (error) {
+    console.error('PDF export failed', error);
+    alert('Unable to generate PDF. Please try again.');
   }
-
-  doc.addPage();
-  drawHeader("Person Score Comparison", [
-    `Best record: ${report.bestRecord ? report.bestRecord.label : "none"}`,
-    `Unique values: ${report.uniqueCount}`,
-    `Numeric fields: ${report.numericFieldCount}`,
-  ]);
-
-  const comparisonImage = canvasToImageData(elements.comparisonChart);
-  if (comparisonImage) {
-    doc.setFillColor(15, 23, 42);
-    doc.setDrawColor(37, 99, 235);
-    doc.roundedRect(margin, 88, contentWidth, 196, 12, 12, "FD");
-    doc.addImage(comparisonImage, "PNG", margin + 10, 98, contentWidth - 20, 176);
-  }
-
-  doc.addPage();
-  drawHeader("Person Record Cards", ["Each card mirrors the entered user data in a compact PDF layout."]);
-  drawRecordGrid(sortedRecords, 88);
-
-  doc.save("dynamic-information-saver-graph.pdf");
 }
 
 function setReportVisible(isVisible) {
