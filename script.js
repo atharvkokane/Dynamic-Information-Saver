@@ -765,10 +765,10 @@ function getRecordChartConfig(record, recordIndex, isFocused = false, chartConte
           r: {
             beginAtZero: true,
             suggestedMax: 100,
-            ticks: { color: "#64748b", backdropColor: "transparent" },
-            angleLines: { color: "rgba(15, 23, 42, 0.08)" },
-            grid: { color: "rgba(15, 23, 42, 0.08)" },
-            pointLabels: { color: "#334155", font: { size: 12, weight: "600" } },
+            ticks: { color: "#c7d7ff", backdropColor: "transparent", font: { size: 12, weight: "700" } },
+            angleLines: { color: "rgba(125, 211, 252, 0.14)" },
+            grid: { color: "rgba(96, 165, 250, 0.14)" },
+            pointLabels: { color: "#f8fbff", font: { size: 14, weight: "800" } },
           },
         },
       },
@@ -792,7 +792,7 @@ function getRecordChartConfig(record, recordIndex, isFocused = false, chartConte
       plugins: {
         legend: {
           position: "bottom",
-          labels: { color: "#334155", usePointStyle: true, pointStyle: "circle" },
+          labels: { color: "#eaf2ff", usePointStyle: true, pointStyle: "circle", font: { size: 12, weight: "700" } },
         },
         tooltip: {
           backgroundColor: "rgba(15, 23, 42, 0.96)",
@@ -860,11 +860,11 @@ function renderComparisonChart(report, records) {
         x: {
           beginAtZero: true,
           suggestedMax: 100,
-          ticks: { color: "#64748b" },
-          grid: { color: "rgba(15, 23, 42, 0.08)" },
+          ticks: { color: "#c7d7ff", font: { size: 12, weight: "700" } },
+          grid: { color: "rgba(96, 165, 250, 0.12)" },
         },
         y: {
-          ticks: { color: "#334155" },
+          ticks: { color: "#f8fbff", font: { size: 13, weight: "800" } },
           grid: { display: false },
         },
       },
@@ -1070,28 +1070,28 @@ function exportGraphPdf() {
     doc.setFillColor(9, 17, 31);
     doc.rect(0, 0, pageWidth, pageHeight, "F");
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(20);
+    doc.setFontSize(24);
     doc.setTextColor(255, 255, 255);
     doc.text(title, margin, 42);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
     doc.setTextColor(180, 198, 255);
     subtitleLines.forEach((line, index) => {
-      doc.text(line, margin, 60 + (index * 12));
+      doc.text(line, margin, 62 + (index * 14));
     });
   };
 
   const drawSummaryCard = (x, y, width, label, value, accent) => {
     doc.setFillColor(17, 24, 39);
     doc.setDrawColor(accent[0], accent[1], accent[2]);
-    doc.roundedRect(x, y, width, 54, 10, 10, "FD");
-    doc.setTextColor(211, 226, 255);
-    doc.setFontSize(8);
+    doc.roundedRect(x, y, width, 60, 10, 10, "FD");
+    doc.setTextColor(accent[0], accent[1], accent[2]);
+    doc.setFontSize(10);
     doc.setFont("helvetica", "bold");
     doc.text(String(label).toUpperCase(), x + 10, y + 16);
     doc.setTextColor(255, 255, 255);
-    doc.setFontSize(15);
-    doc.text(String(value), x + 10, y + 37);
+    doc.setFontSize(18);
+    doc.text(String(value), x + 10, y + 42);
   };
 
   const drawRecordGrid = (records, startY) => {
@@ -1114,20 +1114,20 @@ function exportGraphPdf() {
         doc.setFillColor(14, 22, 39);
         doc.setDrawColor(37, 99, 235);
         doc.roundedRect(x, currentY, cardWidth, cardHeight, 10, 10, "FD");
-        doc.setTextColor(255, 255, 255);
+        doc.setTextColor(125, 211, 252);
         doc.setFont("helvetica", "bold");
-        doc.setFontSize(12);
-        doc.text(record.label, x + 10, currentY + 18);
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(9);
-        doc.setTextColor(177, 194, 255);
-        doc.text(`Score ${record.score} • ${formatPercent(record.completion)} complete`, x + 10, currentY + 33);
+        doc.setFontSize(14);
+        doc.text(record.label, x + 10, currentY + 20);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.setTextColor(234, 240, 255);
+        doc.text(`Score ${record.score} • ${formatPercent(record.completion)} complete`, x + 10, currentY + 37);
 
         const chips = record.fields.slice(0, 3).map((field) => `${field.label}: ${field.value || "—"}`);
-        doc.setTextColor(234, 240, 255);
+        doc.setTextColor(180, 198, 255);
         chips.forEach((chip, index) => {
           const lines = doc.splitTextToSize(chip, cardWidth - 20);
-          doc.text(lines.slice(0, 2), x + 10, currentY + 50 + (index * 15));
+          doc.text(lines.slice(0, 2), x + 10, currentY + 52 + (index * 16));
         });
       }
 
