@@ -1167,33 +1167,71 @@ function exportGraphPdf() {
 
   const sortedRecords = getSortedRecords(report);
   const barColor = [37, 99, 235];
-  const fillColor = [15, 118, 110];
   const muted = [100, 116, 139];
 
-  const drawHeader = (title, subtitleLines) => {
+  const drawPageShell = (title, subtitleLines, pageNo) => {
     doc.setFillColor(9, 17, 31);
     doc.rect(0, 0, pageWidth, pageHeight, 'F');
+
+    const headerX = margin;
+    const headerY = 24;
+    const headerW = contentWidth;
+    const headerH = 56;
+
+    doc.setFillColor(15, 23, 42);
+    doc.roundedRect(headerX, headerY, headerW, headerH, 18, 18, 'F');
+    doc.setDrawColor(30, 41, 59);
+    doc.roundedRect(headerX, headerY, headerW, headerH, 18, 18, 'S');
+
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(24);
+    doc.setFontSize(20);
     doc.setTextColor(255, 255, 255);
-    doc.text(title, margin, 42);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.setTextColor(180, 198, 255);
-    subtitleLines.forEach((line, index) => {
-      doc.text(line, margin, 62 + index * 14);
+    doc.text(title, headerX + 18, headerY + 24);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+    doc.setTextColor(191, 219, 254);
+    subtitleLines.slice(0, 3).forEach((line, index) => {
+      doc.text(line, headerX + 18, headerY + 40 + index * 11);
     });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(125, 211, 252);
+    doc.text(`Page ${pageNo}`, pageWidth - margin, pageHeight - 22, { align: 'right' });
+  };
+
+  const drawSectionCard = (x, y, width, height, title, subtitle = '') => {
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(x, y, width, height, 16, 16, 'F');
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(x, y, width, height, 16, 16, 'S');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.setTextColor(15, 23, 42);
+    doc.text(title, x + 16, y + 26);
+    if (subtitle) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(100, 116, 139);
+      doc.text(subtitle, x + 16, y + 42);
+    }
   };
 
   const drawPill = (x, y, width, label, value, accent) => {
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(x, y, width, 54, 12, 12, 'F');
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(x, y, width, 54, 12, 12, 'S');
     doc.setFillColor(accent[0], accent[1], accent[2]);
-    doc.roundedRect(x, y, width, 56, 12, 12, 'F');
+    doc.roundedRect(x + 8, y + 10, 6, 34, 3, 3, 'F');
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9);
-    doc.setTextColor(255, 255, 255);
-    doc.text(String(label).toUpperCase(), x + 10, y + 17);
+    doc.setTextColor(100, 116, 139);
+    doc.text(String(label).toUpperCase(), x + 22, y + 18);
     doc.setFontSize(18);
-    doc.text(String(value), x + 10, y + 40);
+    doc.setTextColor(15, 23, 42);
+    doc.text(String(value), x + 22, y + 40);
   };
 
   const drawSimpleBar = (x, y, width, label, value, maxValue) => {
@@ -1202,14 +1240,14 @@ function exportGraphPdf() {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(11);
     doc.setTextColor(33, 41, 55);
-    doc.text(label, x, y + 12);
+    doc.text(label, x, y + 10);
     doc.setFillColor(229, 231, 235);
-    doc.roundedRect(x, y + 18, width, 12, 6, 6, 'F');
+    doc.roundedRect(x, y + 16, width, 10, 5, 5, 'F');
     doc.setFillColor(barColor[0], barColor[1], barColor[2]);
-    doc.roundedRect(x, y + 18, barWidth, 12, 6, 6, 'F');
+    doc.roundedRect(x, y + 16, barWidth, 10, 5, 5, 'F');
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(muted[0], muted[1], muted[2]);
-    doc.text(`${value}%`, x + width - 4, y + 12, { align: 'right' });
+    doc.text(`${value}%`, x + width, y + 10, { align: 'right' });
   };
 
   const addWrappedText = (text, x, y, width, lineHeight = 14) => {
@@ -1219,48 +1257,39 @@ function exportGraphPdf() {
   };
 
   try {
-    drawHeader('Dynamic Information Saver - Graph PDF', [
+    drawPageShell('Dynamic Information Saver - Graph PDF', [
       `Records: ${report.rows}`,
       `Fields: ${report.columns}`,
       `Filled: ${report.filledCount}`,
-    ]);
+    ], 1);
 
-    doc.setFillColor(255, 255, 255);
-    doc.roundedRect(margin, 88, contentWidth, 198, 16, 16, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(16);
-    doc.setTextColor(15, 23, 42);
-    doc.text('Record Overview', margin + 16, 114);
+    drawSectionCard(margin, 98, contentWidth, 188, 'Record Overview', 'A quick summary of the data in the current table');
 
-    const halfWidth = (contentWidth - 16) / 2;
-    const summaryRowY = 128;
-    drawPill(margin + 16, summaryRowY, halfWidth, 'People', report.rows, [15, 118, 110]);
-    drawPill(margin + 16 + halfWidth + 16, summaryRowY, halfWidth, 'Fields', report.columns, [37, 99, 235]);
+    const summaryCardX = margin + 16;
+    const summaryCardW = (contentWidth - 48) / 2;
+    const summaryCardH = 54;
+    const summaryRowY = 144;
 
-    const summaryRow2Y = 192;
-    drawPill(margin + 16, summaryRow2Y, halfWidth, 'Best score', report.bestRecord ? `${report.bestRecord.score}%` : '0%', [124, 58, 237]);
-    drawPill(margin + 16 + halfWidth + 16, summaryRow2Y, halfWidth, 'Filled', `${report.completionRate.toFixed(0)}%`, [249, 115, 22]);
+    drawPill(summaryCardX, summaryRowY, summaryCardW, 'People', report.rows, [15, 118, 110]);
+    drawPill(summaryCardX + summaryCardW + 16, summaryRowY, summaryCardW, 'Fields', report.columns, [37, 99, 235]);
+    drawPill(summaryCardX, summaryRowY + 68, summaryCardW, 'Best score', report.bestRecord ? `${report.bestRecord.score}%` : '0%', [124, 58, 237]);
+    drawPill(summaryCardX + summaryCardW + 16, summaryRowY + 68, summaryCardW, 'Filled', `${report.completionRate.toFixed(0)}%`, [249, 115, 22]);
 
     doc.addPage();
-    drawHeader('Person Score Comparison', [
+    drawPageShell('Person Score Comparison', [
       `Best record: ${report.bestRecord ? report.bestRecord.label : 'none'}`,
       `Unique values: ${report.uniqueCount}`,
       `Numeric fields: ${report.numericFieldCount}`,
-    ]);
+    ], 2);
 
-    doc.setFillColor(255, 255, 255);
-    doc.roundedRect(margin, 88, contentWidth, pageHeight - 122, 16, 16, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(16);
-    doc.setTextColor(15, 23, 42);
-    doc.text('Simple score bars', margin + 16, 114);
+    drawSectionCard(margin, 98, contentWidth, pageHeight - 134, 'Simple score bars', 'Higher bars mean better completion or more filled data');
 
     const recordBars = sortedRecords.slice(0, 10);
     const maxScore = Math.max(100, ...recordBars.map((record) => record.score));
-    let currentY = 132;
+    let currentY = 146;
     recordBars.forEach((record) => {
       drawSimpleBar(margin + 16, currentY, contentWidth - 32, record.label, record.score, maxScore);
-      currentY += 40;
+      currentY += 42;
     });
 
     if (!recordBars.length) {
@@ -1271,36 +1300,62 @@ function exportGraphPdf() {
     }
 
     doc.addPage();
-    drawHeader('Person Record Cards', ['Each card mirrors the entered user data in a compact PDF layout.']);
+    drawPageShell('Person Record Cards', ['Each card mirrors the entered user data in a compact PDF layout.'], 3);
 
     doc.setFillColor(255, 255, 255);
-    doc.roundedRect(margin, 88, contentWidth, pageHeight - 122, 16, 16, 'F');
+    doc.roundedRect(margin, 98, contentWidth, pageHeight - 134, 16, 16, 'F');
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(margin, 98, contentWidth, pageHeight - 134, 16, 16, 'S');
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(16);
     doc.setTextColor(15, 23, 42);
-    doc.text('Record summaries', margin + 16, 114);
+    doc.text('Record summaries', margin + 16, 126);
 
-    let cardY = 132;
-    sortedRecords.slice(0, 8).forEach((record, index) => {
-      if (cardY > pageHeight - 92) {
+    const cardWidth = (contentWidth - 48) / 2;
+    const cardHeight = 74;
+    let xLeft = margin + 16;
+    let xRight = margin + 32 + cardWidth;
+    let cardY = 142;
+    let columnIndex = 0;
+
+    sortedRecords.slice(0, 12).forEach((record) => {
+      if (cardY + cardHeight > pageHeight - 86) {
         doc.addPage();
-        drawHeader('Person Record Cards', ['Continued']);
+        drawPageShell('Person Record Cards', ['Continued'], doc.getNumberOfPages());
         doc.setFillColor(255, 255, 255);
-        doc.roundedRect(margin, 88, contentWidth, pageHeight - 122, 16, 16, 'F');
-        cardY = 114;
+        doc.roundedRect(margin, 98, contentWidth, pageHeight - 134, 16, 16, 'F');
+        doc.setDrawColor(226, 232, 240);
+        doc.roundedRect(margin, 98, contentWidth, pageHeight - 134, 16, 16, 'S');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(16);
+        doc.setTextColor(15, 23, 42);
+        doc.text('Record summaries', margin + 16, 126);
+        cardY = 142;
+        columnIndex = 0;
       }
 
-      doc.setFillColor(index % 2 === 0 ? 243 : 248, index % 2 === 0 ? 244 : 250, 246);
-      doc.roundedRect(margin + 16, cardY, contentWidth - 32, 62, 12, 12, 'F');
+      const cardX = columnIndex === 0 ? xLeft : xRight;
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(cardX, cardY, cardWidth, cardHeight, 12, 12, 'F');
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(cardX, cardY, cardWidth, cardHeight, 12, 12, 'S');
+
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(12);
       doc.setTextColor(15, 23, 42);
-      doc.text(record.label, margin + 28, cardY + 20);
+      doc.text(record.label, cardX + 12, cardY + 20);
+
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(10);
       doc.setTextColor(100, 116, 139);
-      cardY = addWrappedText(`Score ${record.score}%  |  ${record.filledFields}/${record.fields.length} fields filled`, margin + 28, cardY + 38, contentWidth - 56);
-      cardY += 10;
+      doc.text(`Score ${record.score}%`, cardX + 12, cardY + 38);
+      doc.text(`${record.filledFields}/${record.fields.length} fields filled`, cardX + 12, cardY + 54);
+
+      columnIndex += 1;
+      if (columnIndex > 1) {
+        columnIndex = 0;
+        cardY += 88;
+      }
     });
 
     doc.save('dynamic-information-saver-graph.pdf');
