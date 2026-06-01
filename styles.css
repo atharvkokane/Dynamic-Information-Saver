@@ -585,9 +585,23 @@ button:active {
 }
 
 .report-preview {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 14px;
+  display: block;
+}
+
+.pictograph-shell {
+  width: 100%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 251, 255, 0.98));
+  border-radius: 20px;
+  padding: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  box-shadow: 0 14px 30px rgba(2, 6, 23, 0.12);
+}
+
+.pictograph-shell canvas {
+  display: block;
+  width: 100% !important;
+  height: auto !important;
+  border-radius: 14px;
 }
 
 .preview-record {

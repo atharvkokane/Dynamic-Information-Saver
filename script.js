@@ -20,6 +20,10 @@ const elements = {
   closeReportBtn: document.getElementById("closeReportBtn"),
   reportStatus: document.getElementById("reportStatus"),
   reportMetrics: document.getElementById("reportMetrics"),
+  focusCard: document.querySelector(".report-focus-card"),
+  comparisonCard: document.querySelector(".report-comparison-card"),
+  insightsCard: document.querySelector(".report-insights-card"),
+  previewCard: document.querySelector(".report-preview-card"),
   focusKicker: document.getElementById("focusKicker"),
   focusTitle: document.getElementById("focusTitle"),
   focusMeta: document.getElementById("focusMeta"),
@@ -48,6 +52,557 @@ const GRAPH_PALETTE = [
   { base: "#ef4444", glow: "rgba(239, 68, 68, 0.16)", deep: "#b91c1c" },
   { base: "#14b8a6", glow: "rgba(20, 184, 166, 0.16)", deep: "#0f766e" },
 ];
+
+const GRAPH_BOARD_SIZE = {
+  width: 1600,
+  height: 1000,
+};
+
+const GRAPH_BOARD_COLORS = {
+  ink: "#1f2937",
+  muted: "#64748b",
+  border: "#d5dee9",
+  surface: "#ffffff",
+  pale: "#f5fbfa",
+  teal: "#14b8a6",
+  tealDark: "#0f766e",
+  tealLight: "#7dd3fc",
+  mint: "#bff7e6",
+  mintSoft: "#dffcf3",
+  navy: "#334155",
+  blue: "#38bdf8",
+  gray: "#e5e7eb",
+  graySoft: "#f3f4f6",
+  amber: "#f59e0b",
+  coral: "#fb7185",
+};
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function shortenText(value, maxLength = 18) {
+  const text = String(value || "").trim();
+  if (text.length <= maxLength) {
+    return text;
+  }
+
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function computeGraphModel(report, records) {
+  const rowCompletionSeries = records.map((record) => Math.round(record.completion || 0));
+  const scoreSeries = records.map((record) => record.score || 0);
+  const filledSeries = records.map((record) => record.filledFields || 0);
+  const columnFillRates = report.columnProfiles.map((profile) => {
+    if (!report.rows) {
+      return 0;
+    }
+
+    return Math.round((profile.nonEmptyCount / report.rows) * 100);
+  });
+
+  const topColumns = [...report.columnProfiles]
+    .map((profile, index) => ({
+      label: profile.label || `Field ${index + 1}`,
+      value: columnFillRates[index],
+    }))
+    .sort((left, right) => right.value - left.value)
+    .slice(0, 4);
+
+  return {
+    rowCompletionSeries,
+    scoreSeries,
+    filledSeries,
+    columnFillRates,
+    topColumns,
+  };
+}
+
+function setupBoardCanvas(canvas) {
+  if (!canvas) {
+    return null;
+  }
+
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = GRAPH_BOARD_SIZE.width * dpr;
+  canvas.height = GRAPH_BOARD_SIZE.height * dpr;
+  canvas.style.width = "100%";
+  canvas.style.height = "auto";
+  canvas.style.aspectRatio = `${GRAPH_BOARD_SIZE.width} / ${GRAPH_BOARD_SIZE.height}`;
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return null;
+  }
+
+  context.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return context;
+}
+
+function ensureGraphBoardCanvas() {
+  let canvas = elements.reportPreview.querySelector("canvas");
+
+  if (!canvas) {
+    elements.reportPreview.innerHTML = '<div class="graph-board-shell"><canvas id="graphBoardCanvas"></canvas></div>';
+    canvas = elements.reportPreview.querySelector("canvas");
+  }
+
+  return canvas;
+}
+
+function roundRect(context, x, y, width, height, radius, fillStyle, strokeStyle = null, shadow = null) {
+  context.save();
+  if (shadow) {
+    context.shadowColor = shadow.color;
+    context.shadowBlur = shadow.blur;
+    context.shadowOffsetY = shadow.offsetY || 0;
+  }
+
+  context.beginPath();
+  context.moveTo(x + radius, y);
+  context.arcTo(x + width, y, x + width, y + height, radius);
+  context.arcTo(x + width, y + height, x, y + height, radius);
+  context.arcTo(x, y + height, x, y, radius);
+  context.arcTo(x, y, x + width, y, radius);
+  context.closePath();
+
+  if (fillStyle) {
+    context.fillStyle = fillStyle;
+    context.fill();
+  }
+
+  if (strokeStyle) {
+    context.strokeStyle = strokeStyle;
+    context.lineWidth = 1;
+    context.stroke();
+  }
+
+  context.restore();
+}
+
+function drawText(context, text, x, y, options = {}) {
+  const {
+    font = "16px Segoe UI",
+    color = GRAPH_BOARD_COLORS.ink,
+    align = "left",
+    baseline = "alphabetic",
+    maxWidth = null,
+  } = options;
+
+  context.save();
+  context.font = font;
+  context.fillStyle = color;
+  context.textAlign = align;
+  context.textBaseline = baseline;
+  if (maxWidth) {
+    context.fillText(String(text), x, y, maxWidth);
+  } else {
+    context.fillText(String(text), x, y);
+  }
+  context.restore();
+}
+
+function drawGrid(context, x, y, width, height, columns, rows, color) {
+  context.save();
+  context.strokeStyle = color;
+  context.lineWidth = 1;
+
+  for (let column = 1; column < columns; column += 1) {
+    const lineX = x + (width / columns) * column;
+    context.beginPath();
+    context.moveTo(lineX, y);
+    context.lineTo(lineX, y + height);
+    context.stroke();
+  }
+
+  for (let row = 1; row < rows; row += 1) {
+    const lineY = y + (height / rows) * row;
+    context.beginPath();
+    context.moveTo(x, lineY);
+    context.lineTo(x + width, lineY);
+    context.stroke();
+  }
+
+  context.restore();
+}
+
+function drawDonut(context, cx, cy, radius, value, color, label, valueText) {
+  const start = -Math.PI / 2;
+  const end = start + ((clamp(value, 0, 100) / 100) * Math.PI * 2);
+
+  context.save();
+  context.lineWidth = 10;
+  context.strokeStyle = "#dbe3ed";
+  context.beginPath();
+  context.arc(cx, cy, radius, 0, Math.PI * 2);
+  context.stroke();
+
+  context.strokeStyle = color;
+  context.beginPath();
+  context.arc(cx, cy, radius, start, end);
+  context.stroke();
+
+  context.fillStyle = GRAPH_BOARD_COLORS.ink;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.font = "700 30px Segoe UI";
+  context.fillText(String(Math.round(value)), cx, cy - 8);
+  context.font = "600 15px Segoe UI";
+  context.fillStyle = GRAPH_BOARD_COLORS.muted;
+  context.fillText(label, cx, cy + 18);
+  context.font = "700 13px Segoe UI";
+  context.fillStyle = color;
+  context.fillText(valueText, cx, cy + 38);
+  context.restore();
+}
+
+function drawAreaChart(context, x, y, width, height, values, color, lineColor) {
+  const safeValues = values.length ? values : [0];
+  const maxValue = Math.max(100, ...safeValues);
+  const step = safeValues.length > 1 ? width / (safeValues.length - 1) : width;
+
+  context.save();
+  const gradient = context.createLinearGradient(0, y, 0, y + height);
+  gradient.addColorStop(0, `${color}E6`);
+  gradient.addColorStop(1, `${color}00`);
+
+  context.beginPath();
+  safeValues.forEach((value, index) => {
+    const pointX = x + (index * step);
+    const normalized = value / maxValue;
+    const pointY = y + height - (normalized * (height - 8)) - 4;
+    if (index === 0) {
+      context.moveTo(pointX, pointY);
+    } else {
+      const previousX = x + ((index - 1) * step);
+      const previousValue = safeValues[index - 1] / maxValue;
+      const previousY = y + height - (previousValue * (height - 8)) - 4;
+      const controlX = previousX + (step / 2);
+      context.bezierCurveTo(controlX, previousY, controlX, pointY, pointX, pointY);
+    }
+  });
+  context.lineTo(x + width, y + height);
+  context.lineTo(x, y + height);
+  context.closePath();
+  context.fillStyle = gradient;
+  context.fill();
+
+  context.beginPath();
+  safeValues.forEach((value, index) => {
+    const pointX = x + (index * step);
+    const normalized = value / maxValue;
+    const pointY = y + height - (normalized * (height - 8)) - 4;
+    if (index === 0) {
+      context.moveTo(pointX, pointY);
+    } else {
+      const previousX = x + ((index - 1) * step);
+      const previousValue = safeValues[index - 1] / maxValue;
+      const previousY = y + height - (previousValue * (height - 8)) - 4;
+      const controlX = previousX + (step / 2);
+      context.bezierCurveTo(controlX, previousY, controlX, pointY, pointX, pointY);
+    }
+  });
+  context.lineWidth = 4;
+  context.strokeStyle = lineColor;
+  context.lineJoin = "round";
+  context.lineCap = "round";
+  context.stroke();
+
+  safeValues.forEach((value, index) => {
+    const pointX = x + (index * step);
+    const normalized = value / maxValue;
+    const pointY = y + height - (normalized * (height - 8)) - 4;
+    context.beginPath();
+    context.fillStyle = GRAPH_BOARD_COLORS.surface;
+    context.arc(pointX, pointY, 5, 0, Math.PI * 2);
+    context.fill();
+    context.lineWidth = 2;
+    context.strokeStyle = lineColor;
+    context.stroke();
+  });
+
+  context.restore();
+}
+
+function drawColumnChart(context, x, y, width, height, values, color, labelColor) {
+  const safeValues = values.length ? values : [0];
+  const maxValue = Math.max(100, ...safeValues);
+  const gap = 10;
+  const barWidth = Math.max(8, (width - gap * (safeValues.length - 1)) / safeValues.length);
+
+  safeValues.forEach((value, index) => {
+    const barHeight = (value / maxValue) * (height - 20);
+    const barX = x + index * (barWidth + gap);
+    const barY = y + height - barHeight;
+    const gradient = context.createLinearGradient(0, barY, 0, y + height);
+    gradient.addColorStop(0, `${color}E8`);
+    gradient.addColorStop(1, GRAPH_BOARD_COLORS.mintSoft);
+
+    roundRect(context, barX, barY, barWidth, barHeight, 10, gradient, null, null);
+
+    context.save();
+    context.fillStyle = labelColor;
+    context.font = "600 11px Segoe UI";
+    context.textAlign = "center";
+    context.fillText(String(value), barX + (barWidth / 2), barY - 8);
+    context.restore();
+  });
+}
+
+function drawHorizontalBars(context, x, y, width, items) {
+  const rowHeight = 44;
+  items.forEach((item, index) => {
+    const rowY = y + index * rowHeight;
+    const labelWidth = 140;
+    drawText(context, shortenText(item.label, 16), x, rowY + 16, {
+      font: "700 13px Segoe UI",
+      color: GRAPH_BOARD_COLORS.ink,
+    });
+    roundRect(context, x + labelWidth, rowY + 3, width - labelWidth, 14, 7, GRAPH_BOARD_COLORS.graySoft, null, null);
+    roundRect(context, x + labelWidth, rowY + 3, (width - labelWidth) * (item.value / 100), 14, 7, GRAPH_BOARD_COLORS.teal, null, null);
+    drawText(context, `${item.value}%`, x + width, rowY + 16, {
+      font: "700 12px Segoe UI",
+      color: GRAPH_BOARD_COLORS.muted,
+      align: "right",
+    });
+  });
+}
+
+function drawHeatmap(context, x, y, width, height, rows, columns) {
+  const cellWidth = width / Math.max(columns.length, 1);
+  const cellHeight = height / Math.max(rows.length, 1);
+
+  rows.forEach((row, rowIndex) => {
+    columns.forEach((column, columnIndex) => {
+      const cellX = x + columnIndex * cellWidth;
+      const cellY = y + rowIndex * cellHeight;
+      const cellValue = row[columnIndex] ?? 0;
+      const mix = clamp(cellValue / 100, 0, 1);
+      const fillColor = mix > 0.65 ? GRAPH_BOARD_COLORS.teal : mix > 0.35 ? GRAPH_BOARD_COLORS.blue : GRAPH_BOARD_COLORS.graySoft;
+      roundRect(context, cellX + 2, cellY + 2, cellWidth - 4, cellHeight - 4, 8, fillColor, GRAPH_BOARD_COLORS.surface, null);
+      drawText(context, String(cellValue), cellX + (cellWidth / 2), cellY + (cellHeight / 2) + 4, {
+        font: "700 12px Segoe UI",
+        color: mix > 0.35 ? "#ffffff" : GRAPH_BOARD_COLORS.ink,
+        align: "center",
+        baseline: "middle",
+      });
+    });
+  });
+}
+
+function drawMiniBadge(context, x, y, diameter, outerColor, innerColor, title, value) {
+  context.save();
+  context.fillStyle = "#ffffff";
+  context.beginPath();
+  context.arc(x + diameter / 2, y + diameter / 2, diameter / 2, 0, Math.PI * 2);
+  context.fill();
+
+  context.lineWidth = 8;
+  context.strokeStyle = outerColor;
+  context.beginPath();
+  context.arc(x + diameter / 2, y + diameter / 2, diameter / 2 - 6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 1.5);
+  context.stroke();
+
+  context.lineWidth = 4;
+  context.strokeStyle = innerColor;
+  context.beginPath();
+  context.arc(x + diameter / 2, y + diameter / 2, diameter / 2 - 18, 0, Math.PI * 2);
+  context.stroke();
+
+  context.fillStyle = GRAPH_BOARD_COLORS.ink;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.font = "800 22px Segoe UI";
+  context.fillText(String(value), x + diameter / 2, y + diameter / 2 - 8);
+  context.font = "600 11px Segoe UI";
+  context.fillStyle = GRAPH_BOARD_COLORS.muted;
+  context.fillText(title, x + diameter / 2, y + diameter / 2 + 12);
+  context.restore();
+}
+
+function renderGraphBoard(canvas, report, records) {
+  const context = setupBoardCanvas(canvas);
+  if (!context) {
+    return;
+  }
+
+  const width = GRAPH_BOARD_SIZE.width;
+  const height = GRAPH_BOARD_SIZE.height;
+  const model = computeGraphModel(report, records);
+  const left = 36;
+  const top = 30;
+  const gap = 18;
+  const tileWidth = (width - left * 2 - gap * 2) / 3;
+  const tileHeight = (height - 130 - top - gap * 2) / 3;
+
+  context.clearRect(0, 0, width, height);
+
+  const background = context.createLinearGradient(0, 0, width, height);
+  background.addColorStop(0, "#ffffff");
+  background.addColorStop(1, "#f8fbff");
+  context.fillStyle = background;
+  context.fillRect(0, 0, width, height);
+
+  context.fillStyle = "rgba(20, 184, 166, 0.12)";
+  context.beginPath();
+  context.arc(width * 0.1, height * 0.1, 110, 0, Math.PI * 2);
+  context.fill();
+  context.fillStyle = "rgba(37, 99, 235, 0.10)";
+  context.beginPath();
+  context.arc(width * 0.9, height * 0.06, 150, 0, Math.PI * 2);
+  context.fill();
+
+  roundRect(context, 16, 16, width - 32, height - 32, 28, "#ffffff", "#d9e3ef", {
+    color: "rgba(15, 23, 42, 0.08)",
+    blur: 28,
+    offsetY: 8,
+  });
+
+  drawText(context, "Dynamic Information Saver", left, top + 6, {
+    font: "800 40px Segoe UI",
+    color: GRAPH_BOARD_COLORS.ink,
+  });
+  drawText(context, "Graph View", left, top + 42, {
+    font: "700 16px Segoe UI",
+    color: GRAPH_BOARD_COLORS.muted,
+  });
+  drawText(context, `Rows ${report.rows}  •  Columns ${report.columns}  •  Filled ${formatPercent(report.completionRate)}`, width - 42, top + 10, {
+    font: "700 16px Segoe UI",
+    color: GRAPH_BOARD_COLORS.tealDark,
+    align: "right",
+  });
+  drawText(context, `Best record: ${report.bestRecord ? report.bestRecord.label : "None"}`, width - 42, top + 36, {
+    font: "600 14px Segoe UI",
+    color: GRAPH_BOARD_COLORS.muted,
+    align: "right",
+  });
+
+  const tileTop = 94;
+
+  const tiles = [
+    { x: left, y: tileTop, w: tileWidth, h: tileHeight, title: "Completion rings" },
+    { x: left + tileWidth + gap, y: tileTop, w: tileWidth, h: tileHeight, title: "Record trend" },
+    { x: left + (tileWidth + gap) * 2, y: tileTop, w: tileWidth, h: tileHeight, title: "Best record" },
+    { x: left, y: tileTop + tileHeight + gap, w: tileWidth, h: tileHeight, title: "Record line" },
+    { x: left + tileWidth + gap, y: tileTop + tileHeight + gap, w: tileWidth, h: tileHeight, title: "Field heatmap" },
+    { x: left + (tileWidth + gap) * 2, y: tileTop + tileHeight + gap, w: tileWidth, h: tileHeight, title: "Field balance" },
+    { x: left, y: tileTop + (tileHeight + gap) * 2, w: tileWidth, h: tileHeight, title: "Filled counts" },
+    { x: left + tileWidth + gap, y: tileTop + (tileHeight + gap) * 2, w: tileWidth, h: tileHeight, title: "Dual series" },
+    { x: left + (tileWidth + gap) * 2, y: tileTop + (tileHeight + gap) * 2, w: tileWidth, h: tileHeight, title: "Summary badge" },
+  ];
+
+  const drawTile = (tile, subtitle, paint) => {
+    roundRect(context, tile.x, tile.y, tile.w, tile.h, 20, GRAPH_BOARD_COLORS.surface, GRAPH_BOARD_COLORS.border, {
+      color: "rgba(15, 23, 42, 0.08)",
+      blur: 14,
+      offsetY: 8,
+    });
+    drawText(context, tile.title, tile.x + 18, tile.y + 28, {
+      font: "800 16px Segoe UI",
+      color: GRAPH_BOARD_COLORS.ink,
+    });
+    if (subtitle) {
+      drawText(context, subtitle, tile.x + 18, tile.y + 48, {
+        font: "600 12px Segoe UI",
+        color: GRAPH_BOARD_COLORS.muted,
+      });
+    }
+    paint(tile);
+  };
+
+  drawTile(tiles[0], "Same color theme, same board style", (tile) => {
+    const completion = Math.round(report.completionRate || 0);
+    const best = report.bestRecord ? report.bestRecord.score : 0;
+    drawDonut(context, tile.x + 92, tile.y + 110, 54, completion, GRAPH_BOARD_COLORS.teal, "Filled", `${completion}%`);
+    drawDonut(context, tile.x + 238, tile.y + 110, 54, best, GRAPH_BOARD_COLORS.navy, "Best", `${best}%`);
+  });
+
+  drawTile(tiles[1], "Row completion values", (tile) => {
+    const chartX = tile.x + 16;
+    const chartY = tile.y + 66;
+    const chartW = tile.w - 32;
+    const chartH = tile.h - 84;
+    drawAreaChart(context, chartX, chartY, chartW, chartH, model.scoreSeries, GRAPH_BOARD_COLORS.teal, GRAPH_BOARD_COLORS.tealDark);
+    drawGrid(context, chartX, chartY, chartW, chartH, 6, 4, "rgba(148, 163, 184, 0.16)");
+  });
+
+  drawTile(tiles[2], "One highlighted record", (tile) => {
+    const record = report.bestRecord || records[0] || null;
+    const badgeX = tile.x + 52;
+    const badgeY = tile.y + 76;
+    roundRect(context, badgeX, badgeY, tile.w - 104, tile.h - 108, 28, "#f4fbf9", null, null);
+    drawText(context, record ? shortenText(record.label, 20) : "No data", tile.x + tile.w / 2, tile.y + 128, {
+      font: "800 28px Segoe UI",
+      color: GRAPH_BOARD_COLORS.ink,
+      align: "center",
+    });
+    drawText(context, record ? `Score ${record.score}%` : "Generate a table to begin", tile.x + tile.w / 2, tile.y + 170, {
+      font: "700 14px Segoe UI",
+      color: GRAPH_BOARD_COLORS.tealDark,
+      align: "center",
+    });
+    drawMiniBadge(context, tile.x + tile.w / 2 - 52, tile.y + 188, 104, "#16a39c", "#b9f3e4", "Focus", record ? record.score : 0);
+  });
+
+  drawTile(tiles[3], "Completion per person", (tile) => {
+    const chartX = tile.x + 20;
+    const chartY = tile.y + 64;
+    const chartW = tile.w - 40;
+    const chartH = tile.h - 84;
+    drawAreaChart(context, chartX, chartY, chartW, chartH, model.rowCompletionSeries, GRAPH_BOARD_COLORS.blue, GRAPH_BOARD_COLORS.navy);
+  });
+
+  drawTile(tiles[4], "Field coverage across the grid", (tile) => {
+    const chartX = tile.x + 14;
+    const chartY = tile.y + 68;
+    const chartW = tile.w - 28;
+    const chartH = tile.h - 88;
+    const rows = records.slice(0, 5).map((record) => record.fields.slice(0, 5).map((field) => Math.round((field.weight || 0) * 100)));
+    const cols = report.columnProfiles.map((profile) => profile.label).slice(0, 5);
+    drawHeatmap(context, chartX, chartY, chartW, chartH, rows.length ? rows : [[0]], cols.length ? cols : ["A"]);
+    drawGrid(context, chartX, chartY, chartW, chartH, Math.max(cols.length, 1), Math.max(rows.length, 1), "rgba(255, 255, 255, 0.65)");
+  });
+
+  drawTile(tiles[5], "Most complete fields", (tile) => {
+    const items = (model.topColumns.length ? model.topColumns : report.columnProfiles.slice(0, 4).map((profile, index) => ({ label: profile.label || `Field ${index + 1}`, value: report.rows ? Math.round((profile.nonEmptyCount / report.rows) * 100) : 0 }))).slice(0, 4);
+    drawHorizontalBars(context, tile.x + 18, tile.y + 70, tile.w - 36, items);
+  });
+
+  drawTile(tiles[6], "Filled counts by record", (tile) => {
+    const chartX = tile.x + 18;
+    const chartY = tile.y + 70;
+    const chartW = tile.w - 36;
+    const chartH = tile.h - 92;
+    drawColumnChart(context, chartX, chartY, chartW, chartH, model.filledSeries.map((value) => Math.round((value / Math.max(report.columns, 1)) * 100)), GRAPH_BOARD_COLORS.teal, GRAPH_BOARD_COLORS.muted);
+  });
+
+  drawTile(tiles[7], "Two connected curves", (tile) => {
+    const chartX = tile.x + 18;
+    const chartY = tile.y + 68;
+    const chartW = tile.w - 36;
+    const chartH = tile.h - 92;
+    drawAreaChart(context, chartX, chartY, chartW, chartH, model.scoreSeries, GRAPH_BOARD_COLORS.mint, GRAPH_BOARD_COLORS.tealDark);
+    drawAreaChart(context, chartX, chartY + 4, chartW, chartH - 10, model.rowCompletionSeries, GRAPH_BOARD_COLORS.blue, GRAPH_BOARD_COLORS.navy);
+  });
+
+  drawTile(tiles[8], "Key totals", (tile) => {
+    const centerX = tile.x + tile.w / 2;
+    const centerY = tile.y + 118;
+    drawMiniBadge(context, centerX - 80, centerY - 58, 90, "#14b8a6", "#b7f3e5", "Rows", report.rows);
+    drawMiniBadge(context, centerX + 18, centerY - 58, 90, "#2563eb", "#cfe8ff", "Fields", report.columns);
+    drawText(context, `${report.uniqueCount} unique values`, centerX, tile.y + 206, {
+      font: "800 18px Segoe UI",
+      color: GRAPH_BOARD_COLORS.ink,
+      align: "center",
+    });
+    drawText(context, `PDF export uses the same board image`, centerX, tile.y + 232, {
+      font: "600 12px Segoe UI",
+      color: GRAPH_BOARD_COLORS.muted,
+      align: "center",
+    });
+  });
+}
 
 function createEmptyState(rows, columns) {
   const headers = Array.from({ length: columns }, () => "");
@@ -1015,6 +1570,190 @@ function renderInsights(report, records) {
   elements.reportInsights.innerHTML = insights.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
 }
 
+function renderPieChart(report) {
+  if (!window.Chart || !elements.focusChart) {
+    return;
+  }
+
+  if (graphCharts.focus) {
+    graphCharts.focus.destroy();
+  }
+
+  const context = elements.focusChart.getContext("2d");
+  graphCharts.focus = new window.Chart(context, {
+    type: "doughnut",
+    data: {
+      labels: ["Filled", "Empty"],
+      datasets: [{
+        data: [report.filledCount, report.emptyCount],
+        backgroundColor: ["#14b8a6", "#dbeafe"],
+        borderWidth: 0,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: "68%",
+      plugins: {
+        legend: {
+          position: "bottom",
+          labels: { color: "#eaf2ff", usePointStyle: true, pointStyle: "circle", font: { size: 12, weight: "700" } },
+        },
+        tooltip: {
+          backgroundColor: "rgba(15, 23, 42, 0.96)",
+          titleColor: "#fff",
+          bodyColor: "#fff",
+        },
+      },
+    },
+  });
+}
+
+function renderBarChart(records) {
+  if (!window.Chart || !elements.comparisonChart) {
+    return;
+  }
+
+  if (graphCharts.comparison) {
+    graphCharts.comparison.destroy();
+  }
+
+  const context = elements.comparisonChart.getContext("2d");
+  const activeIndex = records.findIndex((record) => record.index === focusedRecordIndex);
+
+  graphCharts.comparison = new window.Chart(context, {
+    type: "bar",
+    data: {
+      labels: records.map((record) => shortenText(record.label, 18)),
+      datasets: [{
+        label: "Record score",
+        data: records.map((record) => record.score),
+        borderSkipped: false,
+        borderRadius: 12,
+        backgroundColor: records.map((record, index) => {
+          if (index === activeIndex) {
+            return "#14b8a6";
+          }
+
+          return GRAPH_PALETTE[index % GRAPH_PALETTE.length].base;
+        }),
+        barThickness: 18,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      indexAxis: "y",
+      onClick: (_, elementsAtEvent) => {
+        const first = elementsAtEvent[0];
+        if (first) {
+          const record = records[first.index];
+          if (record) {
+            setFocusedRecord(record.index);
+          }
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: "rgba(15, 23, 42, 0.96)",
+          titleColor: "#fff",
+          bodyColor: "#fff",
+        },
+      },
+      scales: {
+        x: {
+          beginAtZero: true,
+          suggestedMax: 100,
+          ticks: { color: "#c7d7ff", font: { size: 12, weight: "700" } },
+          grid: { color: "rgba(96, 165, 250, 0.12)" },
+        },
+        y: {
+          ticks: { color: "#f8fbff", font: { size: 13, weight: "800" } },
+          grid: { display: false },
+        },
+      },
+    },
+  });
+}
+
+function ensurePictographCanvas() {
+  let canvas = elements.reportPreview.querySelector("canvas");
+
+  if (!canvas) {
+    elements.reportPreview.innerHTML = '<div class="pictograph-shell"><canvas id="pictographCanvas"></canvas></div>';
+    canvas = elements.reportPreview.querySelector("canvas");
+  }
+
+  return canvas;
+}
+
+function renderPictographCanvas(report, records) {
+  const canvas = ensurePictographCanvas();
+  if (!canvas) {
+    return;
+  }
+
+  const width = 1200;
+  const rowHeight = 64;
+  const height = Math.max(220, 110 + records.length * rowHeight);
+  const ratio = Math.max(window.devicePixelRatio || 1, 1);
+  canvas.width = Math.round(width * ratio);
+  canvas.height = Math.round(height * ratio);
+  canvas.style.width = "100%";
+  canvas.style.height = `${Math.round(height / 2)}px`;
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return;
+  }
+
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  context.clearRect(0, 0, width, height);
+
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, width, height);
+
+  context.fillStyle = "#0f766e";
+  context.font = "800 28px Segoe UI";
+  context.fillText("Pictograph", 24, 40);
+  context.fillStyle = "#64748b";
+  context.font = "600 14px Segoe UI";
+  context.fillText("Each dot shows one 10% step of a record score", 24, 64);
+
+  const startX = 220;
+  const dotSize = 16;
+  const gap = 12;
+
+  if (!records.length) {
+    context.fillStyle = "#64748b";
+    context.font = "600 16px Segoe UI";
+    context.fillText("No records available.", 24, 110);
+    return;
+  }
+
+  records.forEach((record, rowIndex) => {
+    const y = 100 + rowIndex * rowHeight;
+    context.fillStyle = "#1f2937";
+    context.font = "700 16px Segoe UI";
+    context.fillText(shortenText(record.label, 20), 24, y + 12);
+
+    const filledDots = Math.max(0, Math.min(10, Math.round(record.score / 10)));
+
+    for (let index = 0; index < 10; index += 1) {
+      const x = startX + index * (dotSize + gap);
+      context.beginPath();
+      context.arc(x, y, dotSize / 2, 0, Math.PI * 2);
+      context.fillStyle = index < filledDots ? (index % 2 === 0 ? "#14b8a6" : "#2563eb") : "#dbeafe";
+      context.fill();
+    }
+
+    context.fillStyle = "#0f766e";
+    context.font = "700 14px Segoe UI";
+    context.fillText(`${record.score}%`, startX + 10 * (dotSize + gap) + 10, y + 5);
+  });
+}
+
 function renderGraph() {
   const report = getReportData();
 
@@ -1031,7 +1770,6 @@ function renderGraph() {
     return;
   }
 
-  // Simple, approachable report: plain metric cards and a small, clear bar list.
   const sortedRecords = getSortedRecords(report);
   const focusRecord = report.bestRecord ? sortedRecords.find((r) => r.index === report.bestRecord.index) : sortedRecords[0] || null;
 
@@ -1049,103 +1787,24 @@ function renderGraph() {
   elements.reportMetrics.innerHTML = renderRecordOverview(report, focusRecord);
   renderInsights(report, sortedRecords);
 
-  // Focus panel simplified to text summary
-  if (focusRecord) {
-    elements.focusKicker.textContent = `Record ${focusRecord.index + 1}`;
-    elements.focusTitle.textContent = focusRecord.label;
-    elements.focusMeta.textContent = `${formatPercent(focusRecord.completion)} complete — Score ${focusRecord.score}%`;
-    elements.focusStats.innerHTML = `
-      <span class="focus-stat"><strong>${focusRecord.score}</strong><em>Score</em></span>
-      <span class="focus-stat"><strong>${focusRecord.filledFields}</strong><em>Filled</em></span>
-    `;
-    elements.focusChips.innerHTML = '';
-  } else {
-    renderFocusPanel(report, null);
-  }
+  elements.focusKicker.textContent = "Table summary";
+  elements.focusTitle.textContent = focusRecord ? focusRecord.label : "No data selected";
+  elements.focusMeta.textContent = focusRecord
+    ? `${formatPercent(focusRecord.completion)} complete · Score ${focusRecord.score}%`
+    : "Generate a table to see the chart.";
+  elements.focusStats.innerHTML = `
+    <span class="focus-stat"><strong>${report.filledCount}</strong><em>Filled cells</em></span>
+    <span class="focus-stat"><strong>${report.emptyCount}</strong><em>Empty cells</em></span>
+    <span class="focus-stat"><strong>${report.uniqueCount}</strong><em>Unique values</em></span>
+  `;
+  elements.focusChips.innerHTML = "";
 
-  // Person cards (compact): show filled fields and a short completion bar — simple and unique
-  elements.reportPreview.innerHTML = sortedRecords
-    .map((r) => {
-      const totalFields = r.fields.length || report.columns || 0;
-      return `
-      <article class="person-card" data-record-index="${r.index}" tabindex="0" role="button" aria-label="${escapeHtml(r.label)}">
-        <div class="person-head">
-          <strong class="person-name">${escapeHtml(r.label)}</strong>
-          <span class="person-score">${r.score}%</span>
-        </div>
-        <div class="person-sub">${r.filledFields} of ${totalFields} filled</div>
-        <div class="person-bar" aria-hidden="true"><div class="person-fill" style="width:${r.completion}%"></div></div>
-      </article>
-    `
-    })
-    .join("");
-
-  // Wire simple interactions: clicking focuses a record and updates the focus summary
-  const simpleCards = Array.from(elements.reportPreview.querySelectorAll(".simple-record"));
-  simpleCards.forEach((card) => {
-    const idx = Number(card.dataset.recordIndex);
-    card.addEventListener("click", () => {
-      setFocusedRecord(idx);
-      const selected = sortedRecords.find((x) => x.index === idx);
-      if (selected) {
-        elements.focusTitle.textContent = selected.label;
-        elements.focusMeta.textContent = `${formatPercent(selected.completion)} complete — Score ${selected.score}%`;
-        elements.focusStats.innerHTML = `
-          <span class="focus-stat"><strong>${selected.score}</strong><em>Score</em></span>
-          <span class="focus-stat"><strong>${selected.filledFields}</strong><em>Filled</em></span>
-        `;
-      }
-    });
-
-    card.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        card.click();
-      }
-    });
-  });
-
-  // Render a simple comparison list in the comparison card area (replaces empty canvas)
-  const comparisonContainer = elements.comparisonChart ? elements.comparisonChart.parentElement : null;
-  if (comparisonContainer) {
-    if (!sortedRecords.length) {
-      comparisonContainer.innerHTML = '<p class="report-empty">No records to compare.</p>';
-    } else {
-      comparisonContainer.innerHTML = sortedRecords
-        .map((r) => `
-          <div class="comparison-row" data-record-index="${r.index}" tabindex="0" role="button">
-            <div class="comp-label">${escapeHtml(r.label)}</div>
-            <div class="comp-bar"><div class="comp-fill" style="width:${r.score}%"></div></div>
-            <div class="comp-score">${r.score}%</div>
-          </div>
-        `)
-        .join("");
-
-      // allow focusing/selecting from comparison rows
-      Array.from(comparisonContainer.querySelectorAll('.comparison-row')).forEach((row) => {
-        const idx = Number(row.dataset.recordIndex);
-        row.addEventListener('click', () => {
-          setFocusedRecord(idx);
-          const selected = sortedRecords.find((x) => x.index === idx);
-          if (selected) {
-            elements.focusTitle.textContent = selected.label;
-            elements.focusMeta.textContent = `${formatPercent(selected.completion)} complete — Score ${selected.score}%`;
-            elements.focusStats.innerHTML = `
-              <span class="focus-stat"><strong>${selected.score}</strong><em>Score</em></span>
-              <span class="focus-stat"><strong>${selected.filledFields}</strong><em>Filled</em></span>
-            `;
-          }
-        });
-
-        row.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); row.click(); }
-        });
-      });
-    }
-  }
+  renderPieChart(report);
+  renderBarChart(sortedRecords);
+  renderPictographCanvas(report, sortedRecords);
 }
 
-function exportGraphPdf() {
+async function exportGraphPdf() {
   const report = getReportData();
 
   if (!report) {
@@ -1158,210 +1817,113 @@ function exportGraphPdf() {
     return;
   }
 
+  if (!window.html2canvas) {
+    alert('Graph capture library is not loaded. Please reload the page and try again.');
+    return;
+  }
+
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+  const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
-  const margin = 34;
-  const contentWidth = pageWidth - margin * 2;
-
-  const sortedRecords = getSortedRecords(report);
-  const barColor = [37, 99, 235];
-  const muted = [100, 116, 139];
-
-  const drawPageShell = (title, subtitleLines, pageNo) => {
-    doc.setFillColor(9, 17, 31);
-    doc.rect(0, 0, pageWidth, pageHeight, 'F');
-
-    const headerX = margin;
-    const headerY = 24;
-    const headerW = contentWidth;
-    const headerH = 56;
-
-    doc.setFillColor(15, 23, 42);
-    doc.roundedRect(headerX, headerY, headerW, headerH, 18, 18, 'F');
-    doc.setDrawColor(30, 41, 59);
-    doc.roundedRect(headerX, headerY, headerW, headerH, 18, 18, 'S');
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(20);
-    doc.setTextColor(255, 255, 255);
-    doc.text(title, headerX + 18, headerY + 24);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9.5);
-    doc.setTextColor(191, 219, 254);
-    subtitleLines.slice(0, 3).forEach((line, index) => {
-      doc.text(line, headerX + 18, headerY + 40 + index * 11);
-    });
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.setTextColor(125, 211, 252);
-    doc.text(`Page ${pageNo}`, pageWidth - margin, pageHeight - 22, { align: 'right' });
-  };
-
-  const drawSectionCard = (x, y, width, height, title, subtitle = '') => {
-    doc.setFillColor(255, 255, 255);
-    doc.roundedRect(x, y, width, height, 16, 16, 'F');
-    doc.setDrawColor(226, 232, 240);
-    doc.roundedRect(x, y, width, height, 16, 16, 'S');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(16);
-    doc.setTextColor(15, 23, 42);
-    doc.text(title, x + 16, y + 26);
-    if (subtitle) {
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
-      doc.setTextColor(100, 116, 139);
-      doc.text(subtitle, x + 16, y + 42);
-    }
-  };
-
-  const drawPill = (x, y, width, label, value, accent) => {
-    doc.setFillColor(255, 255, 255);
-    doc.roundedRect(x, y, width, 54, 12, 12, 'F');
-    doc.setDrawColor(226, 232, 240);
-    doc.roundedRect(x, y, width, 54, 12, 12, 'S');
-    doc.setFillColor(accent[0], accent[1], accent[2]);
-    doc.roundedRect(x + 8, y + 10, 6, 34, 3, 3, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.setTextColor(100, 116, 139);
-    doc.text(String(label).toUpperCase(), x + 22, y + 18);
-    doc.setFontSize(18);
-    doc.setTextColor(15, 23, 42);
-    doc.text(String(value), x + 22, y + 40);
-  };
-
-  const drawSimpleBar = (x, y, width, label, value, maxValue) => {
-    const ratio = maxValue > 0 ? value / maxValue : 0;
-    const barWidth = Math.max(4, Math.round(width * ratio));
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(11);
-    doc.setTextColor(33, 41, 55);
-    doc.text(label, x, y + 10);
-    doc.setFillColor(229, 231, 235);
-    doc.roundedRect(x, y + 16, width, 10, 5, 5, 'F');
-    doc.setFillColor(barColor[0], barColor[1], barColor[2]);
-    doc.roundedRect(x, y + 16, barWidth, 10, 5, 5, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(muted[0], muted[1], muted[2]);
-    doc.text(`${value}%`, x + width, y + 10, { align: 'right' });
-  };
-
-  const addWrappedText = (text, x, y, width, lineHeight = 14) => {
-    const lines = doc.splitTextToSize(String(text || ''), width);
-    doc.text(lines, x, y);
-    return y + (lines.length * lineHeight);
-  };
+  const margin = 18;
+  const reportPanel = elements.reportDrawer.querySelector(".report-panel");
 
   try {
-    drawPageShell('Dynamic Information Saver - Graph PDF', [
-      `Records: ${report.rows}`,
-      `Fields: ${report.columns}`,
-      `Filled: ${report.filledCount}`,
-    ], 1);
+    const canvas = await window.html2canvas(reportPanel, {
+      backgroundColor: null,
+      scale: Math.max(window.devicePixelRatio || 1, 2),
+      useCORS: true,
+      logging: false,
+      onclone: (clonedDocument) => {
+        const clonedBody = clonedDocument.body;
+        const clonedPanel = clonedDocument.querySelector(".report-panel");
+        const clonedDrawer = clonedDocument.querySelector(".report-drawer");
 
-    drawSectionCard(margin, 98, contentWidth, 188, 'Record Overview', 'A quick summary of the data in the current table');
+        if (clonedBody) {
+          clonedBody.style.margin = "0";
+          clonedBody.style.background = "#f8fbff";
+        }
 
-    const summaryCardX = margin + 16;
-    const summaryCardW = (contentWidth - 48) / 2;
-    const summaryCardH = 54;
-    const summaryRowY = 144;
+        if (clonedDrawer) {
+          clonedDrawer.style.position = "static";
+          clonedDrawer.style.inset = "auto";
+          clonedDrawer.style.padding = "0";
+          clonedDrawer.style.background = "transparent";
+          clonedDrawer.style.opacity = "1";
+          clonedDrawer.style.pointerEvents = "none";
+          clonedDrawer.style.overflow = "visible";
+          clonedDrawer.style.justifyContent = "flex-start";
+          clonedDrawer.style.alignItems = "flex-start";
+        }
 
-    drawPill(summaryCardX, summaryRowY, summaryCardW, 'People', report.rows, [15, 118, 110]);
-    drawPill(summaryCardX + summaryCardW + 16, summaryRowY, summaryCardW, 'Fields', report.columns, [37, 99, 235]);
-    drawPill(summaryCardX, summaryRowY + 68, summaryCardW, 'Best score', report.bestRecord ? `${report.bestRecord.score}%` : '0%', [124, 58, 237]);
-    drawPill(summaryCardX + summaryCardW + 16, summaryRowY + 68, summaryCardW, 'Filled', `${report.completionRate.toFixed(0)}%`, [249, 115, 22]);
+        if (clonedPanel) {
+          clonedPanel.style.width = "1120px";
+          clonedPanel.style.maxWidth = "1120px";
+          clonedPanel.style.marginTop = "0";
+          clonedPanel.style.padding = "14px";
+          clonedPanel.style.transform = "scale(0.74)";
+          clonedPanel.style.transformOrigin = "top left";
+          clonedPanel.style.boxShadow = "none";
+          clonedPanel.style.background = "linear-gradient(180deg, #08101f, #0d1730 58%, #0a1326)";
+          clonedPanel.style.borderRadius = "0";
+          clonedPanel.style.overflow = "visible";
 
-    doc.addPage();
-    drawPageShell('Person Score Comparison', [
-      `Best record: ${report.bestRecord ? report.bestRecord.label : 'none'}`,
-      `Unique values: ${report.uniqueCount}`,
-      `Numeric fields: ${report.numericFieldCount}`,
-    ], 2);
+          const compactStyles = clonedDocument.createElement("style");
+          compactStyles.textContent = `
+            .report-panel .eyebrow { margin-bottom: 4px !important; }
+            .report-header { margin-bottom: 8px !important; }
+            .graph-toolbar { margin-top: 8px !important; padding: 8px 10px !important; }
+            .report-status { margin-top: 10px !important; padding: 8px 10px !important; }
+            .report-metrics { margin-top: 10px !important; gap: 8px !important; }
+            .metric-card { padding: 10px 12px !important; min-height: 72px !important; }
+            .report-focus-card,
+            .report-comparison-card,
+            .report-insights-card,
+            .report-preview-card { margin-top: 10px !important; }
+            .report-card { padding: 12px !important; }
+            .report-card-header { margin-bottom: 10px !important; }
+            .focus-layout { gap: 12px !important; }
+            .focus-summary { padding: 0 !important; }
+            .focus-title { font-size: 1.3rem !important; }
+            .focus-meta { margin-top: 6px !important; font-size: 0.92rem !important; }
+            .focus-stats { margin-top: 10px !important; gap: 8px !important; }
+            .focus-stat { padding: 8px 10px !important; min-width: 76px !important; }
+            .focus-chips { margin-top: 10px !important; gap: 6px !important; }
+            .focus-chip { padding: 6px 8px !important; font-size: 0.84rem !important; }
+            .chart-wrap-focus { min-height: 190px !important; }
+            .chart-wrap-comparison { min-height: 180px !important; }
+            .report-preview-card .report-card-header span,
+            .report-comparison-card .report-card-header span,
+            .report-focus-card .report-card-header span { font-size: 0.82rem !important; }
+            .report-insights { gap: 6px !important; }
+            .report-preview { display: block !important; }
+            .pictograph-shell { padding: 10px !important; }
+          `;
+          clonedDocument.head.appendChild(compactStyles);
 
-    drawSectionCard(margin, 98, contentWidth, pageHeight - 134, 'Simple score bars', 'Higher bars mean better completion or more filled data');
-
-    const recordBars = sortedRecords.slice(0, 10);
-    const maxScore = Math.max(100, ...recordBars.map((record) => record.score));
-    let currentY = 146;
-    recordBars.forEach((record) => {
-      drawSimpleBar(margin + 16, currentY, contentWidth - 32, record.label, record.score, maxScore);
-      currentY += 42;
+          clonedPanel.style.marginTop = "0";
+          clonedPanel.style.transform = "none";
+        }
+      },
     });
 
-    if (!recordBars.length) {
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(12);
-      doc.setTextColor(100, 116, 139);
-      doc.text('No person records available.', margin + 16, currentY + 10);
-    }
+    const imageData = canvas.toDataURL("image/png");
+    const usableWidth = pageWidth - margin * 2;
+    const usableHeight = pageHeight - margin * 2;
+    const scale = Math.min(usableWidth / canvas.width, usableHeight / canvas.height);
+    const imageWidth = canvas.width * scale;
+    const imageHeight = canvas.height * scale;
+    const offsetX = (pageWidth - imageWidth) / 2;
+    const offsetY = (pageHeight - imageHeight) / 2;
 
-    doc.addPage();
-    drawPageShell('Person Record Cards', ['Each card mirrors the entered user data in a compact PDF layout.'], 3);
-
-    doc.setFillColor(255, 255, 255);
-    doc.roundedRect(margin, 98, contentWidth, pageHeight - 134, 16, 16, 'F');
-    doc.setDrawColor(226, 232, 240);
-    doc.roundedRect(margin, 98, contentWidth, pageHeight - 134, 16, 16, 'S');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(16);
-    doc.setTextColor(15, 23, 42);
-    doc.text('Record summaries', margin + 16, 126);
-
-    const cardWidth = (contentWidth - 48) / 2;
-    const cardHeight = 74;
-    let xLeft = margin + 16;
-    let xRight = margin + 32 + cardWidth;
-    let cardY = 142;
-    let columnIndex = 0;
-
-    sortedRecords.slice(0, 12).forEach((record) => {
-      if (cardY + cardHeight > pageHeight - 86) {
-        doc.addPage();
-        drawPageShell('Person Record Cards', ['Continued'], doc.getNumberOfPages());
-        doc.setFillColor(255, 255, 255);
-        doc.roundedRect(margin, 98, contentWidth, pageHeight - 134, 16, 16, 'F');
-        doc.setDrawColor(226, 232, 240);
-        doc.roundedRect(margin, 98, contentWidth, pageHeight - 134, 16, 16, 'S');
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(16);
-        doc.setTextColor(15, 23, 42);
-        doc.text('Record summaries', margin + 16, 126);
-        cardY = 142;
-        columnIndex = 0;
-      }
-
-      const cardX = columnIndex === 0 ? xLeft : xRight;
-      doc.setFillColor(248, 250, 252);
-      doc.roundedRect(cardX, cardY, cardWidth, cardHeight, 12, 12, 'F');
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(cardX, cardY, cardWidth, cardHeight, 12, 12, 'S');
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(12);
-      doc.setTextColor(15, 23, 42);
-      doc.text(record.label, cardX + 12, cardY + 20);
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
-      doc.setTextColor(100, 116, 139);
-      doc.text(`Score ${record.score}%`, cardX + 12, cardY + 38);
-      doc.text(`${record.filledFields}/${record.fields.length} fields filled`, cardX + 12, cardY + 54);
-
-      columnIndex += 1;
-      if (columnIndex > 1) {
-        columnIndex = 0;
-        cardY += 88;
-      }
-    });
-
-    doc.save('dynamic-information-saver-graph.pdf');
+    doc.setFillColor(248, 251, 255);
+    doc.rect(0, 0, pageWidth, pageHeight, "F");
+    doc.addImage(imageData, "PNG", offsetX, offsetY, imageWidth, imageHeight);
+    doc.save("dynamic-information-saver-graph.pdf");
   } catch (error) {
-    console.error('PDF export failed', error);
-    alert('Unable to generate PDF. Please try again.');
+    console.error("PDF export failed", error);
+    alert("Unable to generate PDF. Please try again.");
   }
 }
 
@@ -1421,7 +1983,6 @@ function initialize() {
   }
 
   renderTable();
-  updateGraphSortControl();
 }
 
 elements.generateBtn.addEventListener("click", generateTable);
