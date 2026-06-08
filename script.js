@@ -7,6 +7,7 @@ const elements = {
   generateBtn: document.getElementById("generateBtn"),
   resetBtn: document.getElementById("resetBtn"),
   saveBtn: document.getElementById("saveBtn"),
+  saveDbBtn: document.getElementById("saveDbBtn"),
   downloadBtn: document.getElementById("downloadBtn"),
   saveGraphBtn: document.getElementById("saveGraphBtn"),
   reportBtn: document.getElementById("reportBtn"),
@@ -632,6 +633,7 @@ function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(tableState));
   updateStatus();
 }
+ 
 
 function updateStatus(message) {
   if (message) {
@@ -699,6 +701,9 @@ function renderTable() {
 
 function updateActionButtons() {
   elements.saveBtn.disabled = !tableState;
+  if (elements.saveDbBtn) {
+    elements.saveDbBtn.disabled = !tableState;
+  }
   elements.downloadBtn.disabled = !tableState;
   elements.reportBtn.disabled = false;
   if (elements.saveGraphBtn) {
@@ -992,6 +997,17 @@ function saveToExcel() {
   window.XLSX.writeFile(workbook, "dynamic-information-saver.xlsx");
 }
 
+function saveToDatabase() {
+  if (!tableState) {
+    alert('No table to save. Generate or edit a table first.');
+    return;
+  }
+
+  // Placeholder: frontend-only save button. Integration with Supabase
+  // auth and backend persistence will be added later.
+  alert('Save is a placeholder right now — will integrate Supabase auth later.');
+}
+
 function getNonEmptyValue(value) {
   return String(value || "").trim();
 }
@@ -1083,6 +1099,24 @@ function getReportData() {
 
   const primaryLabelColumnIndex = getPrimaryLabelColumnIndex();
   const columnProfiles = detectColumnProfiles(tableState.rowsData, tableState.headers);
+  // Detect columns that use a "X / Y" pattern (e.g. "18 / 20") so we can compute
+  // real percentages from totals instead of relying on normalization.
+  const fractionPattern = /^\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*$/;
+  const columnFractionInfo = columnProfiles.map((profile, columnIndex) => {
+    const values = tableState.rowsData.map((r) => (r[columnIndex] || "").toString().trim());
+    const parsed = values
+      .map((v) => {
+        const m = v.match(fractionPattern);
+        return m ? { obtained: Number(m[1]), outOf: Number(m[2]) } : null;
+      })
+      .filter(Boolean);
+
+    if (!parsed.length) return null;
+
+    // If multiple outOf values appear, use the max (fallback) — commonly it's the same.
+    const outOf = Math.max(...parsed.map((p) => p.outOf));
+    return { outOf };
+  });
 
   const records = tableState.rowsData.map((row, rowIndex) => {
     const fields = tableState.headers.map((header, columnIndex) => {
@@ -1115,7 +1149,30 @@ function getReportData() {
     const textWeight = fields.reduce((sum, field) => sum + (field.type === "text" ? field.weight : 0), 0);
     const numericWeight = fields.reduce((sum, field) => sum + (field.type === "numeric" ? field.weight : 0), 0);
     const completeness = fields.length ? filledFields / fields.length : 0;
-    const score = Math.round(((completeness * 0.48) + ((numericWeight / Math.max(fields.filter((field) => field.type === "numeric").length, 1)) * 0.34) + ((textWeight / Math.max(fields.filter((field) => field.type === "text").length, 1)) * 0.18)) * 100);
+
+    // If there are fraction-style columns (e.g. "18 / 20"), compute a real percentage
+    // from totals (sum obtained / sum outOf). This gives an intuitive score for marks.
+    let score = null;
+    let obtainedSum = 0;
+    let outOfSum = 0;
+
+    for (let col = 0; col < tableState.columns; col += 1) {
+      const info = columnFractionInfo[col];
+      if (!info) continue;
+      const cell = (row[col] || "").toString().trim();
+      const m = cell.match(fractionPattern);
+      if (m) {
+        obtainedSum += Number(m[1]);
+        outOfSum += Number(m[2]);
+      }
+    }
+
+    if (outOfSum > 0) {
+      score = Math.round((obtainedSum / outOfSum) * 100);
+    } else {
+      // Fallback: use previous blended scoring approach
+      score = Math.round(((completeness * 0.48) + ((numericWeight / Math.max(fields.filter((field) => field.type === "numeric").length, 1)) * 0.34) + ((textWeight / Math.max(fields.filter((field) => field.type === "text").length, 1)) * 0.18)) * 100);
+    }
 
     return {
       index: rowIndex,
@@ -1551,14 +1608,14 @@ function renderInsights(report, records) {
   const insights = [];
 
   insights.push(`${report.rows} person record(s) loaded with ${report.columns} field(s) each.`);
-  insights.push(`Best record: ${report.bestRecord ? `${report.bestRecord.label} at ${report.bestRecord.score}` : "none yet"}.`);
+  insights.push(`Best record: ${report.bestRecord ? `${report.bestRecord.label} at ${report.bestRecord.score}%` : "none yet"}.`);
 
   if (topRecords[0]) {
-    insights.push(`Top performer: ${topRecords[0].label} with a score of ${topRecords[0].score}.`);
+    insights.push(`Top performer: ${topRecords[0].label} with a score of ${topRecords[0].score}%.`);
   }
 
   if (topRecords[1]) {
-    insights.push(`Next strongest record: ${topRecords[1].label} at ${topRecords[1].score}.`);
+    insights.push(`Next strongest record: ${topRecords[1].label} at ${topRecords[1].score}%.`);
   }
 
   if (report.numericFieldCount > 0) {
@@ -1986,7 +2043,14 @@ function initialize() {
 }
 
 elements.generateBtn.addEventListener("click", generateTable);
-elements.resetBtn.addEventListener("click", resetTable);
+elements.resetBtn.addEventListener("click", () => {
+  if (confirm("Are you sure you want to reset this data? This will delete the current table.")) {
+    resetTable();
+  }
+});
+if (elements.saveDbBtn) {
+  elements.saveDbBtn.addEventListener("click", saveToDatabase);
+}
 elements.saveBtn.addEventListener("click", saveToExcel);
 elements.downloadBtn.addEventListener("click", downloadPDF);
 elements.saveGraphBtn.addEventListener("click", exportGraphPdf);
@@ -1994,8 +2058,16 @@ elements.reportBtn.addEventListener("click", openReport);
 elements.closeReportBtn.addEventListener("click", closeReport);
 elements.addRowBtn.addEventListener("click", addRow);
 elements.addColumnBtn.addEventListener("click", addColumn);
-elements.deleteRowBtn.addEventListener("click", deleteRow);
-elements.deleteColumnBtn.addEventListener("click", deleteColumn);
+elements.deleteRowBtn.addEventListener("click", () => {
+  if (confirm("Are you sure you want to delete the last row?")) {
+    deleteRow();
+  }
+});
+elements.deleteColumnBtn.addEventListener("click", () => {
+  if (confirm("Are you sure you want to delete the last column?")) {
+    deleteColumn();
+  }
+});
 elements.search.addEventListener("input", applySearchFilter);
 
 document.addEventListener("keydown", (event) => {
